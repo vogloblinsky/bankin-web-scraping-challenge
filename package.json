@@ -1,0 +1,22 @@
+{
+  "name": "bankin-web-scraping-challenge",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vogloblinsky/bankin-web-scraping-challenge.git"
+  },
+  "author": "vogloblinsky-sii <vogloblinsky@sii.fr>",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/vogloblinsky/bankin-web-scraping-challenge/issues"
+  },
+  "homepage": "https://github.com/vogloblinsky/bankin-web-scraping-challenge#readme",
+  "dependencies": {
+    "puppeteer": "^1.0.0"
+  }
+}
