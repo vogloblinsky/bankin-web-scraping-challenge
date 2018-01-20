@@ -10,7 +10,7 @@
  */
 const puppeteer = require('puppeteer'),
       /**
-       * Librairie pour la création fu fichier JSON final
+       * Librairie pour la création du fichier JSON final
        */
       fs = require('fs-extra'),
       /**
@@ -43,6 +43,11 @@ let DATA = [],
      * Tableau des itérations pour laquelle la page est vide
      */
     ERROR_DATA = [];
+
+/**
+ * Appel de la fonction de démarrage, le moteur JavaScript faisant du hoisting, nous pouvons l'appeler avant sa déclaration et sa mise en mémoire -> https://developer.mozilla.org/fr/docs/Glossaire/Hoisting
+ */
+start();
 
 /**
  * Fonction de démarrage du scraping
@@ -82,7 +87,7 @@ async function start() {
         let i,
             // Max de requête en // pour le remplissage des paginateurs
             len,
-            // Incrément du do
+            // Incrément du do while
             incDo = 1;
 
         /**
@@ -273,8 +278,3 @@ async function start() {
         }
     }    
 }
-
-/**
- * Appel de la fonction de démarrage
- */
-start();
