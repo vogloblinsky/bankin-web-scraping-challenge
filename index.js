@@ -1,4 +1,11 @@
 /**
+ * (c) 2018 Vincent Ogloblinsky / MIT Licence
+ * 
+ * Scraping des données en ouvrant en // des onglets dans Chrome Headless.
+ * Le premier onglet récupérant aucune donnée arrête la boucle de recherche.
+ */
+
+/**
  * Utilisation de puppeteer pour le pilotage de chrome headless
  */
 const puppeteer = require('puppeteer'),
@@ -15,22 +22,27 @@ const puppeteer = require('puppeteer'),
        */
       URL = 'https://web.bankin.com/challenge/index.html', // 'https://web.bankin.com/challenge/index.html' // http://localhost/TMP/bankin-web-scraping-challenge/original-src/
       /**
-       * Nombre d'incrément final à atteindre, nombre en dur déduit en manipulant la page de scraping
-       */
-      MAX_PAGINATION = 100,
-      /**
        * Increment de scraping par page
        */
-      PAGINATION_INCREMENT = 50,
+      SEARCH_PAGINATION_INCREMENT = 50,
       /**
-       * Tableau permettant les itérations en // du scraping [0, 1, 2, ...]
+       * Nombre de requêtes // de recherche
        */
-      ITERATOR = Array.from({length: MAX_PAGINATION}, (v, k) => k * PAGINATION_INCREMENT);
+      SEARCH_PAGINATION_TABS = 101;
+
+/**
+ * Tableau des paginateurs de recherches
+ */
+let ITERATOR_PAGINATION = [];
 
 /**
  * Données brutes
  */
-let DATA = [];
+let DATA = [],
+    /**
+     * Tableau des itérations pour laquelle la page est vide
+     */
+    ERROR_DATA = [];
 
 /**
  * Fonction de démarrage du scraping
@@ -59,22 +71,51 @@ async function start() {
     /**
      * Lancement du scraping avec les itérations
      */
-    processPages(ITERATOR);
+    processPages();
 
     /**
      * Fonction de création des appels en // sur l'url à scraper
-     * @param {array<number>} iterations 
      */
-    async function processPages(iterations) {
-        /**
-         * Création des promesses en utilisant la fonction scrapPage
-         */
-        const promises = iterations.map(scrapPage);
+    async function processPages() {
+
+        // Incrément de la boucle de remplissage des paginateurs
+        let i,
+            // Max de requête en // pour le remplissage des paginateurs
+            len,
+            // Incrément du do
+            incDo = 1;
 
         /**
-         * Attente de la fin d'appel de toutes les urls scrapées
+         * Recherche de la fin de pagination
+         * Tant que le tableau ERROR_DATA n'est pas vide, nous allons scraper par paquets de plusieurs requêtes
          */
-        await Promise.all(promises);
+        do {
+            // Vidage du tableau de paginateurs
+            ITERATOR_PAGINATION = [];
+
+            i = ((incDo - 1) * SEARCH_PAGINATION_TABS) + 1;
+            if ((incDo - 1) === 0) { i = 0;}
+            len = SEARCH_PAGINATION_TABS * incDo;
+
+            // Remplissage des paginateurs
+            for (i; i <= len; i++) {
+                ITERATOR_PAGINATION.push( i * SEARCH_PAGINATION_INCREMENT);
+            }
+
+            /**
+             * Création des promesses en utilisant la fonction scrapPage
+             */
+            let promises = ITERATOR_PAGINATION.map(scrapPage);
+
+            /**
+             * Attente de la fin d'appel de toutes les urls scrapées en //
+             */
+            await Promise.all(promises);
+
+            // On crée un nouveau paquet
+            incDo += 1;
+
+        } while (ERROR_DATA.length === 0)
 
         /**
          * Trie des données brutes par itération, celles-ci étant résolues aléatoirement en //
@@ -92,6 +133,8 @@ async function start() {
         DATA.forEach((it) => {
             FINAL_DATA = [...FINAL_DATA, ...it.data];  
         });
+
+        console.log(`Nombre de données récupérées: ${FINAL_DATA.length}`);
 
         /**
          * Création d'un fichier JSON
@@ -119,84 +162,54 @@ async function start() {
      * @param {number} iteration 
      */
     async function scrapPage(iteration) {
+        try {
+            console.log(`Scraping ${URL}?start=${iteration}`);        
 
-        console.log(`Scraping ${URL}?start=${iteration}`);        
-
-        /**
-         * Récupération de l'instance du browser
-         */
-        const browser = await browserPromise;
-
-        /**
-         * Création d'une page
-         */
-        const page = await browser.newPage();
-
-        /**
-         * Interception des alerts
-         */
-        page.on('dialog', dialog => {
-            dialog.dismiss();
             /**
-             * Clic sur le bouton dédié de génération manuelle
+             * Récupération de l'instance du browser
              */
-            page.click('#btnGenerate');
-        });
+            const browser = await browserPromise;
 
-        /**
-         * Ouverture d'un onglet
-         */
-        await page.goto(`${URL}?start=${iteration}`, {
-            waitUntil : 'domcontentloaded'
-        });
-    
-        /**
-         * Polling d'attente (10ms) de la présence dans le DOM du tableau en direct, ou dans une iframe
-         */
-        const watchDog = page.waitForFunction(`(Object.keys(document.querySelectorAll('#dvTable tr')).length > 0) || (document.getElementById('fm') !== null && Object.keys(document.getElementById('fm').contentWindow.document.body.querySelectorAll('table tr')).length > 0)`, {
-            polling: 10
-        });
-    
-        await watchDog;
-
-        /**
-         * Récupération des informations dans le tableau en direct
-         */    
-        let dvTableElements = await page.evaluate((sel) => {
             /**
-             * On supprime la première ligne d'entête du tableau, et ensuite on récupère les données
+             * Création d'une page
              */
-            return [...document.querySelectorAll(sel)].splice(1).map(el => {
-                return {
-                    Account: el.querySelectorAll('td')[0].innerHTML,
-                    Transaction: el.querySelectorAll('td')[1].innerHTML,
-                    Amount: el.querySelectorAll('td')[2].innerHTML.match(/\d+/g)[0],
-                    Currency: el.querySelectorAll('td')[2].innerHTML.match(/\D/g)[0]
-                }
-            });
-        }, '#dvTable tr');
-    
-        /**
-         * Si nous avons des données, sauvegardons les dans le tableau temporaire
-         */
-        if (dvTableElements.length > 0) {
-            DATA.push({
-                iteration: iteration,
-                data: dvTableElements
-            });
-        }
+            const page = await browser.newPage();
 
-        /**
-         * Récupération des informations dans le tableau dans l'iframe
-         */    
-        let dvIframeTableElements = await page.evaluate(() => {
-            let result = [];
-            if (document.getElementById('fm')) {
-                let lineElements = document.getElementById('fm').contentWindow.document.body.querySelectorAll('table tr');
+            /**
+             * Interception des alerts
+             */
+            page.on('dialog', dialog => {
+                dialog.dismiss();
+                /**
+                 * Clic sur le bouton dédié de génération manuelle
+                 */
+                page.click('#btnGenerate');
+            });
+
+            /**
+             * Ouverture d'un onglet
+             */
+            await page.goto(`${URL}?start=${iteration}`, {
+                waitUntil : 'domcontentloaded'
+            });
+        
+            /**
+             * Polling d'attente (10ms) de la présence dans le DOM du tableau en direct, ou dans une iframe
+             */
+            const watchDog = page.waitForFunction(`(Object.keys(document.querySelectorAll('#dvTable tr')).length > 0) || (document.getElementById('fm') !== null && Object.keys(document.getElementById('fm').contentWindow.document.body.querySelectorAll('table tr')).length > 0)`, {
+                polling: 10
+            });
+        
+            await watchDog;
+
+            /**
+             * Récupération des informations dans le tableau en direct
+             */    
+            let dvTableElements = await page.evaluate((sel) => {
                 /**
                  * On supprime la première ligne d'entête du tableau, et ensuite on récupère les données
                  */
-                result = [...lineElements].splice(1).map(el => {
+                return [...document.querySelectorAll(sel)].splice(1).map(el => {
                     return {
                         Account: el.querySelectorAll('td')[0].innerHTML,
                         Transaction: el.querySelectorAll('td')[1].innerHTML,
@@ -204,18 +217,59 @@ async function start() {
                         Currency: el.querySelectorAll('td')[2].innerHTML.match(/\D/g)[0]
                     }
                 });
+            }, '#dvTable tr');
+        
+            /**
+             * Si nous avons des données, sauvegardons les dans le tableau temporaire
+             */
+            if (dvTableElements.length > 0) {
+                DATA.push({
+                    iteration: iteration,
+                    data: dvTableElements
+                });
             }
-            return result;
-        });
-    
-        /**
-         * Si nous avons des données, sauvegardons les dans le tableau temporaire
-         */
-        if (dvIframeTableElements.length > 0) {
-            DATA.push({
-                iteration: iteration,
-                data: dvIframeTableElements
+
+            /**
+             * Récupération des informations dans le tableau dans l'iframe
+             */    
+            let dvIframeTableElements = await page.evaluate(() => {
+                let result = [];
+                if (document.getElementById('fm')) {
+                    let lineElements = document.getElementById('fm').contentWindow.document.body.querySelectorAll('table tr');
+                    /**
+                     * On supprime la première ligne d'entête du tableau, et ensuite on récupère les données
+                     */
+                    result = [...lineElements].splice(1).map(el => {
+                        return {
+                            Account: el.querySelectorAll('td')[0].innerHTML,
+                            Transaction: el.querySelectorAll('td')[1].innerHTML,
+                            Amount: el.querySelectorAll('td')[2].innerHTML.match(/\d+/g)[0],
+                            Currency: el.querySelectorAll('td')[2].innerHTML.match(/\D/g)[0]
+                        }
+                    });
+                }
+                return result;
             });
+        
+            /**
+             * Si nous avons des données, sauvegardons les dans le tableau temporaire
+             */
+            if (dvIframeTableElements.length > 0) {
+                DATA.push({
+                    iteration: iteration,
+                    data: dvIframeTableElements
+                });
+            }
+
+            /**
+             * Si on ne trouve rien, annulation de la promesse du await
+             */
+            if (dvIframeTableElements.length === 0 && dvTableElements.length === 0) {
+                ERROR_DATA.push(iteration);
+                throw Error('no data');
+            }
+        } catch (err) {
+            // Interception de l'annulation de la promesse
         }
     }    
 }
